@@ -104,6 +104,8 @@ def flush_batch(conn: sqlite3.Connection, batch):
 
 
 def process_folder(conn: sqlite3.Connection, folder: Path, source_name: str):
+    import time
+
     files = discover_log_files(folder)
     if not files:
         eprint(f"[WARN] {source_name} 目录没有发现可解析日志: {folder}")
@@ -121,24 +123,40 @@ def process_folder(conn: sqlite3.Connection, folder: Path, source_name: str):
         "bad_lines": 0,
     }
 
-    # 关键逻辑：
-    # 每个来源目录分别维护：peer_ip -> 最近一条 INV 的 size
-    # 交易哈希行出现时，绑定到该来源目录中、该 peer_ip 最近出现的 INV。
+    # 每个来源目录分别维护 peer -> 最近 INV 大小
     last_inv_by_peer = {}
 
     batch = []
     batch_size = 10000
 
-    for date_str, _, is_current, path in files:
+    total_files = len(files)
+
+    for idx, (date_str, _, is_current, path) in enumerate(files, start=1):
+        file_start = time.time()
+
+        file_stats = {
+            "lines": 0,
+            "inv_lines": 0,
+            "tx_lines_matched": 0,
+            "tx_lines_unmatched": 0,
+            "ignored_iplist_lines": 0,
+            "ignored_other_lines": 0,
+            "bad_lines": 0,
+        }
+
+        eprint(f"[INFO] [{source_name}] 开始处理文件 {idx}/{total_files}: {path.name}")
+
         if is_current:
-            eprint(f"[INFO] {source_name} 使用 mtime 推断当前文件日期: {path.name} -> {date_str}")
+            eprint(f"[INFO] [{source_name}] 当前文件使用 mtime 推断日期: {path.name} -> {date_str}")
 
         with open_text_maybe_gz(path) as f:
             for raw_line in f:
+                file_stats["lines"] += 1
                 line = raw_line.rstrip("\n")
                 m = TIME_RE.match(line)
                 if not m:
                     stats["bad_lines"] += 1
+                    file_stats["bad_lines"] += 1
                     continue
 
                 time_str = m.group(1)
@@ -147,6 +165,7 @@ def process_folder(conn: sqlite3.Connection, folder: Path, source_name: str):
                 # 忽略以大量 IP 列表开头的行
                 if IP_LIST_RE.match(rest):
                     stats["ignored_iplist_lines"] += 1
+                    file_stats["ignored_iplist_lines"] += 1
                     continue
 
                 inv_m = INV_RE.match(rest)
@@ -155,6 +174,7 @@ def process_folder(conn: sqlite3.Connection, folder: Path, source_name: str):
                     inv_size = int(inv_m.group(2))
                     last_inv_by_peer[peer_ip] = inv_size
                     stats["inv_lines"] += 1
+                    file_stats["inv_lines"] += 1
                     continue
 
                 tx_m = TX_RE.match(rest)
@@ -165,17 +185,34 @@ def process_folder(conn: sqlite3.Connection, folder: Path, source_name: str):
                     inv_size = last_inv_by_peer.get(peer_ip)
                     if inv_size is None:
                         stats["tx_lines_unmatched"] += 1
+                        file_stats["tx_lines_unmatched"] += 1
                         continue
 
                     full_ts = f"{date_str} {time_str}"
                     batch.append((tx_hash, full_ts, peer_ip, inv_size))
                     stats["tx_lines_matched"] += 1
+                    file_stats["tx_lines_matched"] += 1
 
                     if len(batch) >= batch_size:
                         flush_batch(conn, batch)
                     continue
 
                 stats["ignored_other_lines"] += 1
+                file_stats["ignored_other_lines"] += 1
+
+        flush_batch(conn, batch)
+
+        elapsed = time.time() - file_start
+        eprint(
+            f"[INFO] [{source_name}] 文件完成 {idx}/{total_files}: {path.name} | "
+            f"耗时={elapsed:.2f}s | 行数={file_stats['lines']} | "
+            f"INV={file_stats['inv_lines']} | "
+            f"TX匹配={file_stats['tx_lines_matched']} | "
+            f"TX未匹配={file_stats['tx_lines_unmatched']} | "
+            f"忽略IP列表={file_stats['ignored_iplist_lines']} | "
+            f"其他忽略={file_stats['ignored_other_lines']} | "
+            f"坏行={file_stats['bad_lines']}"
+        )
 
     flush_batch(conn, batch)
 
