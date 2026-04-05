@@ -15,7 +15,7 @@ DB_CONFIG = {
     "host": "127.0.0.1",
     "port": 3306,
     "user": "root",
-    "password": "your_password",
+    "password": "Wcf314159",
     "database": "tron",
     "autocommit": False,
 }
@@ -25,9 +25,9 @@ POLL_INTERVAL_SECONDS = 300  # 5 分钟
 
 # 需要监控的 3 个 ipv4
 MONITORED_IPV4S = [
-    "1.1.1.1",
-    "2.2.2.2",
-    "3.3.3.3",
+    "192.248.169.225",
+    "108.61.250.142",
+    "144.202.25.123",
 ]
 
 # 输出目录
