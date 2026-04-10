@@ -74,8 +74,20 @@ def save_summary(df: pd.DataFrame, out_dir: str) -> None:
 
 
 def plot_hist_hit_peers(df: pd.DataFrame, out_dir: str) -> None:
+    data = df["hitPeers"].dropna()
+    if len(data) == 0:
+        return
+
+    bin_width = 20
+    data_min = data.min()
+    data_max = data.max()
+
+    left = math.floor(data_min / bin_width) * bin_width
+    right = math.ceil(data_max / bin_width) * bin_width + bin_width
+    bins = np.arange(left, right + bin_width, bin_width)
+
     plt.figure(figsize=(8, 5))
-    plt.hist(df["hitPeers"].dropna(), bins=20)
+    plt.hist(data, bins=bins)
     plt.xlabel("hitPeers")
     plt.ylabel("Count")
     plt.title("Distribution of hitPeers")
@@ -86,8 +98,19 @@ def plot_hist_hit_peers(df: pd.DataFrame, out_dir: str) -> None:
 
 def plot_hist_hit_rate(df: pd.DataFrame, out_dir: str) -> None:
     data = df["hit_rate_num"].dropna()
+    if len(data) == 0:
+        return
+
+    bin_width = 20
+    data_min = data.min()
+    data_max = data.max()
+
+    left = math.floor(data_min / bin_width) * bin_width
+    right = math.ceil(data_max / bin_width) * bin_width + bin_width
+    bins = np.arange(left, right + bin_width, bin_width)
+
     plt.figure(figsize=(8, 5))
-    plt.hist(data, bins=20)
+    plt.hist(data, bins=bins)
     plt.xlabel("hit rate (%)")
     plt.ylabel("Count")
     plt.title("Distribution of hit rate")
@@ -135,6 +158,51 @@ def plot_box_hit_rate(df: pd.DataFrame, out_dir: str) -> None:
     plt.savefig(os.path.join(out_dir, "box_hit_rate.png"), dpi=200)
     plt.close()
 
+def plot_ecdf_hit_peers(df: pd.DataFrame, out_dir: str) -> None:
+    data = np.sort(df["hitPeers"].dropna().to_numpy())
+    if len(data) == 0:
+        return
+
+    y = np.arange(1, len(data) + 1) / len(data)
+
+    # 90% 分位点
+    p = 0.90
+    x_p = np.quantile(data, p)
+
+    # 指定参考点
+    x_ref = 82
+    y_ref = np.searchsorted(data, x_ref, side="right") / len(data)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(data, y, label="ECDF")
+
+    # 90% 参考线
+    plt.axhline(p, linestyle="--")
+    plt.axvline(x_p, linestyle="--")
+    plt.scatter([x_p], [p])
+    plt.annotate(
+        f"90%: {x_p:.2f}",
+        xy=(x_p, p),
+        xytext=(10, -15),
+        textcoords="offset points"
+    )
+
+    # x=82 的分界线和点
+    plt.axvline(x_ref, linestyle="--")
+    plt.scatter([x_ref], [y_ref])
+    plt.annotate(
+        f"{y_ref:.2%}: {x_ref:.2f}",
+        xy=(x_ref, y_ref),
+        xytext=(10, 10),
+        textcoords="offset points"
+    )
+
+    plt.xlabel("hitPeers")
+    plt.ylabel("ECDF")
+    plt.title("ECDF of hitPeers")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "ecdf_hitPeers.png"), dpi=200)
+    plt.close()
 
 def main():
     if len(sys.argv) < 2:
@@ -156,6 +224,7 @@ def main():
     plot_ecdf_hit_rate(df, out_dir)
     plot_scatter_responded_vs_hit(df, out_dir)
     plot_box_hit_rate(df, out_dir)
+    plot_ecdf_hit_peers(df, out_dir)
 
     print(f"分析完成，输出目录: {out_dir}")
 
